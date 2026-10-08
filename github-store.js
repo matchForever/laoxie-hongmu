@@ -50,7 +50,7 @@
       this.snapshot = null;
     }
     async request(path, options = {}) {
-      if (!this.key) throw new Error('请先输入 GitHub 管理钥匙登录。');
+      if (!this.key) throw new Error('请先登录管理。');
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
       const timer = controller ? setTimeout(() => controller.abort(), 30000) : null;
       try {
@@ -61,9 +61,9 @@
           ...(controller ? {signal:controller.signal} : {})
         });
         if (!response.ok) {
-          let message = 'GitHub 暂时无法处理请求，请稍后重试。当前填写内容会保留。';
-          if (response.status === 401) message = '管理钥匙无效或已到期，请重新生成并登录。';
-          if (response.status === 403 || response.status === 404) message = '请确认钥匙属于 matchForever，已授权 laoxie-hongmu 仓库，且 Contents 设为 Read and write；也可能是 GitHub 暂时限制请求，请稍后重试。';
+          let message = '服务暂时无法处理请求，请稍后重试。当前填写内容会保留。';
+          if (response.status === 401) message = '登录凭证无效或已到期，请更新后重新登录。';
+          if (response.status === 403 || response.status === 404) message = '当前凭证没有店铺管理权限，或服务暂时限制访问，请稍后重试或联系维护人员。';
           if (response.status === 409 || response.status === 422) message = conflict().message;
           if (response.status === 429) message = '操作较频繁，请稍后重试。当前填写内容会保留。';
           const error = new Error(message); error.status = response.status; throw error;
@@ -71,7 +71,7 @@
         return await response.json();
       } catch (e) {
         if (e.status) throw e;
-        const error = new Error('无法连接 GitHub。请用手机自带浏览器打开网站，检查网络后重试。当前填写内容会保留。');
+        const error = new Error('连接失败，请检查网络后重试。当前填写内容会保留。');
         error.network = true; throw error;
       } finally { if (timer !== null) clearTimeout(timer); }
     }
@@ -89,11 +89,11 @@
     }
     async login(key) {
       this.logout();
-      if (!/^(github_pat_|gh[pousr]_)[A-Za-z0-9_]+$/.test(key) || key.length < 20 || key.length > 300) throw new Error('请粘贴 GitHub 管理钥匙，原老板密码不用于此登录。下方“首次设置”可创建钥匙。');
+      if (!/^(github_pat_|gh[pousr]_)[A-Za-z0-9_]+$/.test(key) || key.length < 20 || key.length > 300) throw new Error('请填写有效的登录凭证。');
       this.key = key;
       try {
         const account = await this.request('/user');
-        if (account.login?.toLowerCase() !== this.owner.toLowerCase()) throw new Error('这把钥匙不属于 matchForever，请使用店铺 GitHub 账号的钥匙。');
+        if (account.login?.toLowerCase() !== this.owner.toLowerCase()) throw new Error('当前凭证没有这家店铺的管理权限。');
         this.snapshot = await this.readSnapshot();
         return this.snapshot.catalog;
       } catch (e) { this.logout(); throw e; }

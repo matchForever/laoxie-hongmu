@@ -14,7 +14,6 @@ const text = (tag, value, className) => { const n = document.createElement(tag);
 function imageSource(value) {
   if (typeof value !== 'string') return '';
   if (/^assets\/(?:[\w-]+\/)*[\w-]+\.(jpg|jpeg|png|webp)$/.test(value)) return mode === 'live' && previews.has(value) ? previews.get(value) : value;
-  if (mode === 'demo' && /^data:image\/(jpeg|png|webp);base64,/.test(value)) return value;
   return '';
 }
 function setImage(img, value) {
@@ -58,7 +57,6 @@ function render() {
   }
   if (!items.length) $('#grid').append(text('p', '这个分类暂时没有家具，换个分类看看。', 'empty'));
   $('#example-note').hidden = !catalog.products.some(p => p.visible && p.example);
-  $('#preview-banner').hidden = mode !== 'demo'; document.body.classList.toggle('preview', mode === 'demo');
   $('#owner-entry').textContent = mode ? '⌑ 家具管理' : '⌑ 老板登录';
 }
 function openDetail(p) {
@@ -68,7 +66,7 @@ function openDetail(p) {
   for (const [label, value] of [['长',p.length],['宽',p.width],['高',p.height]]) { const d = text('div',''); d.append(text('strong', value), text('span', `${label} / 厘米`)); $('#detail-dimensions').append(d); }
   $('#detail-thumbs').replaceChildren();
   p.images.forEach((url, index) => { const b = text('button', '', index === 0 ? 'active' : ''); b.setAttribute('aria-label', `查看第 ${index + 1} 张图片`); b.append(imageNode(url,p.name)); b.onclick = () => { setImage($('#detail-image'), url); for (const t of $('#detail-thumbs').children) t.classList.remove('active'); b.classList.add('active'); }; $('#detail-thumbs').append(b); });
-  $('#detail-example').textContent = p.example ? '效果预览：图片、材质和尺寸为示例，以门店实物为准。' : '尺寸为人工测量，实际尺寸请以门店实物为准。';
+  $('#detail-example').textContent = p.example ? '图片为效果示意，款式、材质和尺寸以门店实物为准。' : '尺寸为人工测量，实际尺寸请以门店实物为准。';
   contact($('#detail-contact')); show('#detail');
 }
 async function refreshPublic(force = false) {
@@ -100,8 +98,7 @@ async function refreshPublic(force = false) {
   finally { if (timer !== null) clearTimeout(timer); publicLoading = false; $('#refresh-catalog').disabled = false; }
 }
 function openAdmin() {
-  $('#admin-mode').textContent = mode === 'demo' ? '体验模式 · 仅当前浏览器' : 'GitHub 管理 · matchForever';
-  $('#admin-status').textContent = mode === 'demo' ? '这是体验模式。修改只在当前浏览器可见，退出后恢复正式店铺。' : '保存后自动发布，通常需要几分钟。这里显示保存后的资料，顾客页面在发布完成后更新。';
+  $('#admin-status').textContent = '保存后，店铺页面会在几分钟内更新。';
   renderAdmin(); show('#admin');
 }
 function renderAdmin() {
@@ -110,7 +107,7 @@ function renderAdmin() {
     const row = text('div','','admin-row'); const info = text('div',''); info.append(text('h3', p.name), text('p', dimensions(p)), text('span', p.visible ? '展示中' : '已下架', 'tag'));
     const edit = text('button','编辑','secondary'); edit.onclick = () => openEditor(p);
     const toggle = text('button', p.visible ? '下架' : '重新展示','text-button');
-    toggle.onclick = async () => { if (busy) return; setBusy(true); try { const next = clone(catalog); next.products.find(i=>i.id===p.id).visible = !p.visible; await persist(next); render(); renderAdmin(); toast(mode === 'demo' ? '体验展示状态已保存，仅当前浏览器可见。' : '展示状态已保存，通常几分钟后发布到店铺。'); } catch(e) { toast(e.message); } finally { setBusy(false); } };
+    toggle.onclick = async () => { if (busy) return; setBusy(true); try { const next = clone(catalog); next.products.find(i=>i.id===p.id).visible = !p.visible; await persist(next); render(); renderAdmin(); toast('展示状态已保存，店铺页面正在更新。'); } catch(e) { toast(e.message); } finally { setBusy(false); } };
     row.append(imageNode(p.images[0],p.name),info,edit,toggle); $('#admin-list').append(row);
   }
   if (!catalog.products.length) $('#admin-list').append(text('p','还没有家具，点击“新增家具”上传第一件。','empty'));
@@ -121,14 +118,9 @@ function setBusy(value) {
   $('#save-product').textContent = value ? '正在保存…' : '保存家具';
   $('#store-form .button').textContent = value ? '正在保存…' : '保存门店信息';
 }
-async function openDB() { return new Promise((resolve,reject)=>{ const r=indexedDB.open('laoxie-demo-v1',1); r.onupgradeneeded=()=>r.result.createObjectStore('drafts'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(new Error('浏览器无法保存体验数据。请使用普通浏览模式。')); }); }
-async function demoData(action, value) { const db=await openDB(); return new Promise((resolve,reject)=>{ const tx=db.transaction('drafts',action==='read'?'readonly':'readwrite'); const r=action==='read'?tx.objectStore('drafts').get('catalog'):tx.objectStore('drafts').put(value,'catalog'); tx.oncomplete=()=>{db.close();resolve(r.result);}; tx.onerror=()=>{db.close();reject(new Error('浏览器存储空间不足，请减少照片后重试。'));}; }); }
 async function persist(next, uploads = []) {
-  if (mode === 'demo') await demoData('write', next);
-  else if (mode === 'live') {
-    next = await manager.save(next, uploads);
-  } else throw new Error('请先登录管理。');
-  catalog = next;
+  if (mode !== 'live') throw new Error('请先登录管理。');
+  catalog = await manager.save(next, uploads);
 }
 function openEditor(p) {
   editId = p?.id || null; photos = (p?.images || []).map(url=>({url})); $('#product-form').reset(); $('#photo-input').value=''; $('#editor-error').textContent=''; $('#editor-title').textContent=p?'编辑家具':'新增家具';
@@ -168,7 +160,7 @@ $('#product-form').onsubmit=async event=>{
     const uploads = mode==='live' ? photos.filter(photo=>photo.pending).map(photo=>({path:photo.path,dataURL:photo.url,blobSha:photo.blobSha})) : [];
     try { await persist(next, uploads); } finally { for (const upload of uploads) { const photo=photos.find(p=>p.path===upload.path); if(photo)photo.blobSha=upload.blobSha; } }
     if(mode==='live')for(const photo of photos){if(photo.pending){previews.set(photo.path,photo.url);photo.url=photo.path;photo.pending=false;}}
-    category = '全部'; render();renderAdmin();$('#editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'已保存到 GitHub，正在发布，通常几分钟后顾客可见。');
+    category = '全部'; render();renderAdmin();$('#editor').close();toast('保存成功，店铺页面正在更新。');
   }catch(e){$('#editor-error').textContent=e.message;}finally{setBusy(false);}
 };
 function forgetKey(){try{localStorage.removeItem(keyStorage);}catch{}}
@@ -176,18 +168,17 @@ $('#owner-entry').onclick=()=>{if(mode)openAdmin();else{try{const key=localStora
 $('#login-form').onsubmit=async event=>{
   event.preventDefault(); const submit=$('button',event.target);submit.disabled=true;submit.textContent='正在登录…';$('#login-error').textContent='';
   try{
-    const key=$('#token').value.trim();if($('#remember-key').checked&&!key.startsWith('github_pat_'))throw new Error('记住本机只支持下方首次设置生成的细粒度钥匙，请取消勾选或换用该钥匙。');
+    const key=$('#token').value.trim();if($('#remember-key').checked&&!key.startsWith('github_pat_'))throw new Error('这个凭证不能被记住，请取消“记住登录”后继续。');
     const data=await manager.login(key);mode='live';catalog=data;previews.clear();imageRequests.clear();
-    if($('#remember-key').checked){try{localStorage.setItem(keyStorage,key);}catch{toast('已登录，但浏览器未允许记住钥匙。');}}else forgetKey();
+    if($('#remember-key').checked){try{localStorage.setItem(keyStorage,key);}catch{toast('已登录，但浏览器未允许记住登录。');}}else forgetKey();
     $('#token').value='';$('#login').close();render();openAdmin();
-  }catch(e){manager.logout();if(e.status===401)forgetKey();$('#login-error').textContent=e.message || '登录失败，请检查网络。';}finally{submit.disabled=false;submit.textContent='登录家具管理';}
+  }catch(e){manager.logout();if(e.status===401)forgetKey();$('#login-error').textContent=e.message || '登录失败，请检查网络。';}finally{submit.disabled=false;submit.textContent='登录管理';}
 };
-$('#demo-login').onclick=async()=>{try{catalog=await demoData('read') || clone(original);mode='demo';manager.logout();$('#token').value='';$('#login').close();render();openAdmin();}catch(e){$('#login-error').textContent=e.message;}};
-function logout(){if(busy)return;const wasLive=mode==='live';mode=null;manager.logout();previews.clear();imageRequests.clear();if(wasLive)forgetKey();$('#remember-key').checked=false;catalog=original?clone(original):null;$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(catalog)render();else $('#grid').replaceChildren(text('p','家具正在加载…','empty'));toast('已退出管理。保存的修改将在发布完成后显示。');refreshPublic(true);}
-$('#logout').onclick=logout;$('#preview-banner').onclick=logout;
+function logout(){if(busy)return;mode=null;manager.logout();previews.clear();imageRequests.clear();forgetKey();$('#remember-key').checked=false;catalog=original?clone(original):null;$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(catalog)render();else $('#grid').replaceChildren(text('p','家具正在加载…','empty'));toast('已退出管理。保存的修改将在发布完成后显示。');refreshPublic(true);}
+$('#logout').onclick=logout;
 $('#add-product').onclick=()=>openEditor();
 $('#store-edit').onclick=()=>{const f=$('#store-form');for(const key of ['intro','phone','address','hours'])f.elements.namedItem(key).value=catalog.store[key]||'';$('#store-error').textContent='';show('#store-editor');};
-$('#store-form').onsubmit=async event=>{event.preventDefault();if(busy)return;setBusy(true);$('#store-error').textContent='';try{const next=clone(catalog);for(const key of ['intro','phone','address','hours'])next.store[key]=event.target.elements.namedItem(key).value.trim();if(!next.store.intro)throw new Error('请填写门店介绍。');if(next.store.phone&&!/^[+\d\s()-]{5,30}$/.test(next.store.phone))throw new Error('请填写有效的联系电话。');await persist(next);render();$('#store-editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'门店信息已保存，通常几分钟后发布。');}catch(e){$('#store-error').textContent=e.message;}finally{setBusy(false);}};
+$('#store-form').onsubmit=async event=>{event.preventDefault();if(busy)return;setBusy(true);$('#store-error').textContent='';try{const next=clone(catalog);for(const key of ['intro','phone','address','hours'])next.store[key]=event.target.elements.namedItem(key).value.trim();if(!next.store.intro)throw new Error('请填写门店介绍。');if(next.store.phone&&!/^[+\d\s()-]{5,30}$/.test(next.store.phone))throw new Error('请填写有效的联系电话。');await persist(next);render();$('#store-editor').close();toast('门店信息已保存，店铺页面正在更新。');}catch(e){$('#store-error').textContent=e.message;}finally{setBusy(false);}};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{if(!busy)b.closest('dialog').close();});
 document.querySelectorAll('dialog').forEach(d=>{d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});});
 $('#year').textContent=new Date().getFullYear();
