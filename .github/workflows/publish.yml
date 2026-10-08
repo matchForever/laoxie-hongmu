@@ -1,0 +1,65 @@
+name: Publish furniture website
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: '3-58/5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: furniture-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+      - name: Copy public furniture and photos
+        id: sync
+        continue-on-error: true
+        run: python3 scripts/sync_catalog.py
+      - name: Save mirrored catalog in the repository
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- data.json assets/uploads
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish latest public furniture and photos'
+            git push origin HEAD:master
+          fi
+      - name: Configure Pages
+        if: github.event_name != 'schedule' || steps.sync.outputs.changed == 'true'
+        uses: actions/configure-pages@v5
+      - name: Prepare static website
+        if: github.event_name != 'schedule' || steps.sync.outputs.changed == 'true'
+        run: python3 scripts/build_public.py
+      - name: Upload website artifact
+        if: github.event_name != 'schedule' || steps.sync.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public-site
+      - name: Publish website
+        id: deployment
+        if: github.event_name != 'schedule' || steps.sync.outputs.changed == 'true'
+        uses: actions/deploy-pages@v4
+      - name: Report a sync failure without losing the existing catalog
+        if: steps.sync.outcome == 'failure'
+        run: |
+          echo 'The management service could not be read. Existing public furniture has been preserved.'
+          exit 1

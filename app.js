@@ -12,7 +12,7 @@ const text = (tag, value, className) => { const n = document.createElement(tag);
 function imageSource(value) {
   if (typeof value !== 'string') return '';
   if (/^assets\/[\w/.-]+$/.test(value)) return value;
-  try { const url = new URL(value); if (url.origin === apiRoot && /^\/images\/[a-f0-9-]{36}\.jpg$/.test(url.pathname)) return value; } catch {}
+  try { const url = new URL(value); if (mode === 'live' && url.origin === apiRoot && /^\/images\/[a-f0-9-]{36}\.jpg$/.test(url.pathname)) return value; } catch {}
   if (mode === 'demo' && /^data:image\/(jpeg|png|webp);base64,/.test(value)) return value;
   return '';
 }
@@ -76,33 +76,38 @@ async function request(path, options = {}) {
   }
   return r.json();
 }
-async function loadLive() { const data = await request('/api/admin/catalog'); if (!Array.isArray(data.catalog?.products) || !data.catalog.store) throw new Error('家具数据格式异常，请联系网站维护人员。'); catalogSha = data.version; publicVersion = data.version; return data.catalog; }
+async function loadLive() { const data = await request('/api/admin/catalog'); if (!Array.isArray(data.catalog?.products) || !data.catalog.store) throw new Error('家具数据格式异常，请联系网站维护人员。'); catalogSha = data.version; return data.catalog; }
 async function refreshPublic(force = false) {
-  if (!catalog || mode || publicLoading || (!force && Date.now() - lastPublicFetch < 15000)) return;
+  if (mode || publicLoading || (!force && Date.now() - lastPublicFetch < 15000)) return;
   publicLoading = true; lastPublicFetch = Date.now(); $('#refresh-catalog').disabled = true;
   $('#load-status').textContent = '正在获取最新家具…';
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 25000) : null;
   try {
-    const latest = await request('/api/catalog');
-    if (!latest.catalog || !Array.isArray(latest.catalog.products) || !Number.isInteger(latest.version)) throw new Error('家具资料暂时无法读取，请稍后重试。');
-    if (!mode && latest.version >= publicVersion) {
-      const changed = latest.version !== publicVersion; publicVersion = latest.version;
-      catalog = latest.catalog; original = clone(catalog); if (changed) render();
-      $('#load-status').textContent = '已更新为店铺最新家具';
+    const response = await fetch(`data.json?t=${Date.now()}`, {cache:'no-store', ...(controller ? {signal:controller.signal} : {})});
+    if (!response.ok) throw new Error();
+    const latest = await response.json();
+    const version = latest._publication?.version ?? 0;
+    if (!latest.store || !Array.isArray(latest.products) || !Number.isInteger(version) || latest.products.some(p => !p.visible || !Array.isArray(p.images) || p.images.some(url => !/^assets\/[\w/-]+\.(jpg|jpeg|png|webp)$/.test(url)))) throw new Error('网站资料格式异常，请联系网站维护。');
+    if (version >= publicVersion) {
+      const changed = version !== publicVersion; publicVersion = version;
+      original = clone(latest);
+      if (!mode) {
+        catalog = latest; if (changed || !$('#grid').children.length) render();
+        $('#load-status').textContent = '已载入店铺家具';
+      }
     }
   } catch (e) {
     if (!mode) {
-      // The initial sample file is only a clearly labelled fallback.
-      if (publicVersion < 0) {
-        render();
-        $('#load-status').textContent = '无法连接店铺后台，当前仅展示初始示例，新增家具尚未加载。请检查网络，或用手机浏览器打开后点击“更新家具”。';
-      } else $('#load-status').textContent = '最新家具加载失败，当前保留上次加载的内容。请点击“更新家具”重试。';
+      if (!catalog) $('#grid').replaceChildren(text('p','家具加载失败，请点击“更新家具”重试。','empty'));
+      $('#load-status').textContent = '网页资料加载失败。请检查网络后点击“更新家具”重试。';
     }
   }
-  finally { publicLoading = false; $('#refresh-catalog').disabled = false; }
+  finally { if (timer !== null) clearTimeout(timer); publicLoading = false; $('#refresh-catalog').disabled = false; }
 }
 function openAdmin() {
-  $('#admin-mode').textContent = mode === 'demo' ? '体验模式 · 仅当前浏览器' : '正式管理 · 保存后发布到店铺';
-  $('#admin-status').textContent = mode === 'demo' ? '这是体验模式。修改只在当前浏览器可见，退出后恢复正式店铺。' : '保存后立即发布到店铺。顾客可点“更新家具”，网页也会自动更新。';
+  $('#admin-mode').textContent = mode === 'demo' ? '体验模式 · 仅当前浏览器' : '正式管理 · 保存后等待网站发布';
+  $('#admin-status').textContent = mode === 'demo' ? '这是体验模式。修改只在当前浏览器可见，退出后恢复正式店铺。' : '保存后自动发布，通常需要几分钟。这里显示保存后的资料，顾客页面在发布完成后更新。';
   renderAdmin(); show('#admin');
 }
 function renderAdmin() {
@@ -111,7 +116,7 @@ function renderAdmin() {
     const row = text('div','','admin-row'); const info = text('div',''); info.append(text('h3', p.name), text('p', dimensions(p)), text('span', p.visible ? '展示中' : '已下架', 'tag'));
     const edit = text('button','编辑','secondary'); edit.onclick = () => openEditor(p);
     const toggle = text('button', p.visible ? '下架' : '重新展示','text-button');
-    toggle.onclick = async () => { if (busy) return; setBusy(true); try { const next = clone(catalog); next.products.find(i=>i.id===p.id).visible = !p.visible; await persist(next); render(); renderAdmin(); toast(p.visible ? '家具已下架，可以随时重新展示。' : '家具已重新展示。'); } catch(e) { toast(e.message); } finally { setBusy(false); } };
+    toggle.onclick = async () => { if (busy) return; setBusy(true); try { const next = clone(catalog); next.products.find(i=>i.id===p.id).visible = !p.visible; await persist(next); render(); renderAdmin(); toast(mode === 'demo' ? '体验展示状态已保存，仅当前浏览器可见。' : '展示状态已保存，通常几分钟后发布到店铺。'); } catch(e) { toast(e.message); } finally { setBusy(false); } };
     row.append(imageNode(p.images[0],p.name),info,edit,toggle); $('#admin-list').append(row);
   }
   if (!catalog.products.length) $('#admin-list').append(text('p','还没有家具，点击“新增家具”上传第一件。','empty'));
@@ -129,7 +134,6 @@ async function persist(next) {
   else if (mode === 'live') {
     const result = await request('/api/admin/catalog', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:catalogSha,catalog:next})});
     catalogSha = result.version;
-    publicVersion = result.version;
     next = result.catalog;
   } else throw new Error('请先登录管理。');
   catalog = next;
@@ -169,7 +173,7 @@ $('#product-form').onsubmit=async event=>{
       p.images.push(photo.url);
     }
     const next=clone(catalog);const index=next.products.findIndex(i=>i.id===p.id);if(index<0)next.products.push(p);else next.products[index]=p;
-    await persist(next); category = '全部'; render();renderAdmin();$('#editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':p.visible?'保存成功，家具已在店铺展示。':'保存成功。此家具已下架，点击“重新展示”即可展示。');
+    await persist(next); category = '全部'; render();renderAdmin();$('#editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'保存成功，通常几分钟后发布到店铺。');
   }catch(e){$('#editor-error').textContent=e.message;}finally{setBusy(false);}
 };
 $('#owner-entry').onclick=()=>{if(mode)openAdmin();else show('#login');};
@@ -181,11 +185,11 @@ $('#login-form').onsubmit=async event=>{
   }catch(e){token='';$('#login-error').textContent=e.message || '登录失败，请检查网络。';}finally{submit.disabled=false;submit.textContent='登录家具管理';}
 };
 $('#demo-login').onclick=async()=>{try{catalog=await demoData('read') || clone(original);mode='demo';token='';$('#token').value='';$('#login').close();render();openAdmin();}catch(e){$('#login-error').textContent=e.message;}};
-function logout(){if(busy)return;if(mode==='live')original=clone(catalog);mode=null;token='';catalog=clone(original);$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());render();toast('已退出管理。');refreshPublic(true);}
+function logout(){if(busy)return;mode=null;token='';catalog=original?clone(original):null;$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(catalog)render();else $('#grid').replaceChildren(text('p','家具正在加载…','empty'));toast('已退出管理。保存的修改将在发布完成后显示。');refreshPublic(true);}
 $('#logout').onclick=logout;$('#preview-banner').onclick=logout;
 $('#add-product').onclick=()=>openEditor();
 $('#store-edit').onclick=()=>{const f=$('#store-form');for(const key of ['intro','phone','address','hours'])f.elements.namedItem(key).value=catalog.store[key]||'';$('#store-error').textContent='';show('#store-editor');};
-$('#store-form').onsubmit=async event=>{event.preventDefault();if(busy)return;setBusy(true);$('#store-error').textContent='';try{const next=clone(catalog);for(const key of ['intro','phone','address','hours'])next.store[key]=event.target.elements.namedItem(key).value.trim();if(!next.store.intro)throw new Error('请填写门店介绍。');if(next.store.phone&&!/^[+\d\s()-]{5,30}$/.test(next.store.phone))throw new Error('请填写有效的联系电话。');await persist(next);render();$('#store-editor').close();toast('门店信息已保存。');}catch(e){$('#store-error').textContent=e.message;}finally{setBusy(false);}};
+$('#store-form').onsubmit=async event=>{event.preventDefault();if(busy)return;setBusy(true);$('#store-error').textContent='';try{const next=clone(catalog);for(const key of ['intro','phone','address','hours'])next.store[key]=event.target.elements.namedItem(key).value.trim();if(!next.store.intro)throw new Error('请填写门店介绍。');if(next.store.phone&&!/^[+\d\s()-]{5,30}$/.test(next.store.phone))throw new Error('请填写有效的联系电话。');await persist(next);render();$('#store-editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'门店信息已保存，通常几分钟后发布。');}catch(e){$('#store-error').textContent=e.message;}finally{setBusy(false);}};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{if(!busy)b.closest('dialog').close();});
 document.querySelectorAll('dialog').forEach(d=>{d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});});
 $('#year').textContent=new Date().getFullYear();
@@ -196,19 +200,8 @@ window.addEventListener('focus', () => refreshPublic());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPublic(); });
 setInterval(() => { if (!document.hidden) refreshPublic(); }, 60000);
 async function initialiseCatalog() {
-  try {
-    const response = await fetch(`data.json?t=${Date.now()}`, {cache:'no-store'});
-    if (!response.ok) throw new Error();
-    catalog = await response.json(); original = clone(catalog);
-    $('#store-intro').textContent = catalog.store.intro; contact($('#store-contact'));
-    // Do not paint three seed cards before the complete live catalog arrives.
-    $('#grid').replaceChildren(text('p','正在加载店内家具，请稍候…','empty'));
-    $('#example-note').hidden = true;
-    await refreshPublic(true);
-  } catch {
-    $('#grid').replaceChildren(text('p','家具加载失败，请检查网络并刷新页面。','empty'));
-    $('#load-status').textContent = '网页资料加载失败，请刷新后重试。';
-    $('#owner-entry').disabled = true;
-  }
+  $('#grid').replaceChildren(text('p','正在加载店内家具，请稍候…','empty'));
+  $('#example-note').hidden = true;
+  await refreshPublic(true);
 }
 initialiseCatalog();
