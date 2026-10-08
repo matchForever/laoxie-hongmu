@@ -31,7 +31,11 @@ function setImage(img, value) {
 function imageNode(value, alt, className) { const img = document.createElement('img'); setImage(img, value); img.alt = alt; if (className) img.className = className; img.loading = 'lazy'; return img; }
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 4500); }
 function show(id) { $(id).showModal(); }
-function dimensions(p) { return `长 ${p.length} × 宽 ${p.width} × 高 ${p.height} cm`; }
+const hasDimension = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
+function dimensions(p) {
+  const values = [['长',p.length],['宽',p.width],['高',p.height]].filter(([,value]) => hasDimension(value));
+  return values.length ? values.map(([label,value]) => `${label} ${value}`).join(' × ') + ' cm' : '';
+}
 function contact(container) {
   container.replaceChildren(); const s = catalog.store;
   if (s.address) container.append(text('p', `门店地址：${s.address}`, 'contact-line'));
@@ -52,21 +56,23 @@ function render() {
     const card = text('button', '', 'card'); card.setAttribute('aria-label', `查看${p.name}的图片和尺寸`);
     const picture = text('div', '', 'card-photo'); picture.append(imageNode(p.images[0], p.name));
     if (p.featured) picture.append(text('span', '店内推荐', 'badge'));
-    const body = text('div', '', 'card-body'); body.append(text('p', p.category, 'card-category'), text('h3', p.name), text('p', p.description, 'card-description'));
-    const size = text('div', '', 'card-size'); size.append(text('span', dimensions(p)), text('span', '查看大图和介绍')); body.append(size); card.append(picture, body); card.onclick = () => openDetail(p); $('#grid').append(card);
+    const body = text('div', '', 'card-body'); body.append(text('p', p.category, 'card-category'), text('h3', p.name));
+    if (p.description) body.append(text('p', p.description, 'card-description'));
+    const size = text('div', '', 'card-size'); if (dimensions(p)) size.append(text('span', dimensions(p))); size.append(text('span', '查看家具详情')); body.append(size); card.append(picture, body); card.onclick = () => openDetail(p); $('#grid').append(card);
   }
   if (!items.length) $('#grid').append(text('p', '这个分类暂时没有家具，换个分类看看。', 'empty'));
   $('#example-note').hidden = !catalog.products.some(p => p.visible && p.example);
   $('#owner-entry').textContent = mode ? '⌑ 家具管理' : '⌑ 老板登录';
 }
 function openDetail(p) {
-  $('#detail-name').textContent = p.name; $('#detail-category').textContent = `${p.category} / 家具详情`; $('#detail-material').textContent = `材质：${p.material}`;
-  $('#detail-description').textContent = p.description; setImage($('#detail-image'), p.images[0]); $('#detail-image').alt = p.name;
+  $('#detail-name').textContent = p.name; $('#detail-category').textContent = `${p.category} / 家具详情`; $('#detail-material').textContent = p.material ? `材质：${p.material}` : ''; $('#detail-material').hidden = !p.material;
+  $('#detail-description').textContent = p.description || ''; $('#detail-description').hidden = !p.description; setImage($('#detail-image'), p.images[0]); $('#detail-image').alt = p.name;
   $('#detail-dimensions').replaceChildren();
-  for (const [label, value] of [['长',p.length],['宽',p.width],['高',p.height]]) { const d = text('div',''); d.append(text('strong', value), text('span', `${label} / 厘米`)); $('#detail-dimensions').append(d); }
+  for (const [label, value] of [['长',p.length],['宽',p.width],['高',p.height]]) { if (!hasDimension(value)) continue; const d = text('div',''); d.append(text('strong', value), text('span', `${label} / 厘米`)); $('#detail-dimensions').append(d); }
+  $('#detail-dimensions').hidden = !dimensions(p);
   $('#detail-thumbs').replaceChildren();
   p.images.forEach((url, index) => { const b = text('button', '', index === 0 ? 'active' : ''); b.setAttribute('aria-label', `查看第 ${index + 1} 张图片`); b.append(imageNode(url,p.name)); b.onclick = () => { setImage($('#detail-image'), url); for (const t of $('#detail-thumbs').children) t.classList.remove('active'); b.classList.add('active'); }; $('#detail-thumbs').append(b); });
-  $('#detail-example').textContent = p.example ? '图片为效果示意，款式、材质和尺寸以门店实物为准。' : '尺寸为人工测量，实际尺寸请以门店实物为准。';
+  $('#detail-example').textContent = p.example ? '图片为效果示意，款式、材质和尺寸以门店实物为准。' : '家具信息以门店实物为准，欢迎来电咨询。';
   contact($('#detail-contact')); show('#detail');
 }
 async function refreshPublic(force = false) {
@@ -104,7 +110,7 @@ function openAdmin() {
 function renderAdmin() {
   $('#admin-list').replaceChildren();
   for (const p of catalog.products) {
-    const row = text('div','','admin-row'); const info = text('div',''); info.append(text('h3', p.name), text('p', dimensions(p)), text('span', p.visible ? '展示中' : '已下架', 'tag'));
+    const row = text('div','','admin-row'); const info = text('div',''); info.append(text('h3', p.name), text('p', p.category)); if (dimensions(p)) info.append(text('p', dimensions(p))); info.append(text('span', p.visible ? '展示中' : '已下架', 'tag'));
     const edit = text('button','编辑','secondary'); edit.onclick = () => openEditor(p);
     const toggle = text('button', p.visible ? '下架' : '重新展示','text-button');
     toggle.onclick = async () => { if (busy) return; setBusy(true); try { const next = clone(catalog); next.products.find(i=>i.id===p.id).visible = !p.visible; await persist(next); render(); renderAdmin(); toast('展示状态已保存，店铺页面正在更新。'); } catch(e) { toast(e.message); } finally { setBusy(false); } };
@@ -124,7 +130,9 @@ async function persist(next, uploads = []) {
 }
 function openEditor(p) {
   editId = p?.id || null; photos = (p?.images || []).map(url=>({url})); $('#product-form').reset(); $('#photo-input').value=''; $('#editor-error').textContent=''; $('#editor-title').textContent=p?'编辑家具':'新增家具';
-  for (const key of ['name','category','material','length','width','height','description']) $('#product-form').elements.namedItem(key).value=p?.[key] ?? (key==='category'?'沙发':'');
+  $('#category-options').replaceChildren();
+  for (const c of new Set(['沙发','餐桌','柜架','床具','桌椅','其他', ...catalog.products.map(item => item.category)])) { const option = text('option',''); option.value = c; $('#category-options').append(option); }
+  for (const key of ['name','category','material','length','width','height','description']) $('#product-form').elements.namedItem(key).value=p?.[key] ?? (key==='category'?'其他':'');
   for (const key of ['visible','featured','example']) $('#product-form').elements.namedItem(key).checked=p?.[key] ?? (key==='visible');
   renderPhotos(); show('#editor');
 }
@@ -146,9 +154,13 @@ $('#photo-input').onchange=async event=>{if(busy||processing)return;const files=
 $('#product-form').onsubmit=async event=>{
   event.preventDefault();if(busy||processing)return;$('#editor-error').textContent='';
   if(!photos.length){$('#editor-error').textContent='请至少添加一张家具照片。';return;}
-  const f=event.target; const p={id:editId || newProductId(),name:f.elements.namedItem('name').value.trim(),category:f.elements.namedItem('category').value,material:f.elements.namedItem('material').value.trim(),description:f.elements.namedItem('description').value.trim(),images:[]};
-  if(!p.name||!p.material||!p.description){$('#editor-error').textContent='名称、材质和介绍不能只填写空格。';return;}
-  for(const key of ['length','width','height'])p[key]=Number(f.elements.namedItem(key).value);
+  const f=event.target; const p={id:editId || newProductId(),name:f.elements.namedItem('name').value.trim(),category:f.elements.namedItem('category').value.trim(),material:f.elements.namedItem('material').value.trim(),description:f.elements.namedItem('description').value.trim(),images:[]};
+  if(!p.name||!p.category){$('#editor-error').textContent='请填写家具名称和分类。';return;}
+  if(p.category==='全部'){ $('#editor-error').textContent='“全部”用于查看所有家具，请填写具体分类。';return; }
+  for(const key of ['length','width','height']) {
+    const value=f.elements.namedItem(key).value.trim(); p[key]=value===''?null:Number(value);
+    if(p[key]!==null&&(!Number.isFinite(p[key])||p[key]<1||p[key]>2000)){ $('#editor-error').textContent='尺寸可不填；填写时请使用 1 到 2000 厘米之间的数字。';return; }
+  }
   for(const key of ['visible','featured','example'])p[key]=f.elements.namedItem(key).checked;
   setBusy(true);
   try{

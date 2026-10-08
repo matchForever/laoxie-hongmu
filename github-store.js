@@ -17,14 +17,18 @@
     const products = source.products.map(item => {
       const p = {};
       for (const [key, limit] of Object.entries({id:100, name:60, category:30, material:100, description:2000})) {
-        if (typeof item[key] !== 'string' || !item[key].trim() || item[key].length > limit) throw new Error('请检查家具名称、材质和介绍。');
-        p[key] = item[key];
+        const value = item[key] ?? '';
+        if (typeof value !== 'string' || (['id','name','category'].includes(key) && !value.trim()) || value.length > limit) throw new Error('请检查家具名称、分类及填写内容的长度。');
+        p[key] = value.trim();
       }
+      if(p.category==='全部') throw new Error('请填写具体的家具分类。');
       if (!/^[\w-]+$/.test(p.id) || ids.has(p.id)) throw new Error('家具编号重复或格式不正确。');
       ids.add(p.id);
       for (const key of ['length','width','height']) {
-        if (!Number.isFinite(item[key]) || item[key] < 1 || item[key] > 2000) throw new Error('长、宽、高请填写 1 到 2000 厘米之间的数字。');
-        p[key] = item[key];
+        const value = item[key];
+        if (value == null || value === '') { p[key] = null; continue; }
+        if (!Number.isFinite(value) || value < 1 || value > 2000) throw new Error('尺寸可不填；填写时请使用 1 到 2000 厘米之间的数字。');
+        p[key] = value;
       }
       for (const key of ['visible','featured','example']) {
         if (typeof item[key] !== 'boolean') throw new Error('家具展示设置格式不正确。');
