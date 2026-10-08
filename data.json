@@ -76,7 +76,7 @@
     {
       "id": "furniture-ba40257f-c5cc-4e56-8bcb-65b629781da8",
       "name": "测试2",
-      "category": "餐桌",
+      "category": "测试种类",
       "material": "测试木材2",
       "description": "测试介绍2",
       "length": 1,
@@ -92,7 +92,7 @@
     }
   ],
   "_publication": {
-    "version": 9,
-    "updatedAt": "2026-10-08T08:12:17.143Z"
+    "version": 10,
+    "updatedAt": "2026-10-08T08:47:06.914Z"
   }
 }
