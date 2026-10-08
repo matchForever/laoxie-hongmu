@@ -72,10 +72,27 @@
         "assets/uploads/e16f1302-3da3-4749-9394-05e6440c46ec.jpg",
         "assets/uploads/0e281f0c-73c4-4b0e-8542-72b58981ea58.jpg"
       ]
+    },
+    {
+      "id": "furniture-ba40257f-c5cc-4e56-8bcb-65b629781da8",
+      "name": "测试2",
+      "category": "餐桌",
+      "material": "测试木材2",
+      "description": "测试介绍2",
+      "length": 1,
+      "width": 2,
+      "height": 3,
+      "visible": true,
+      "featured": true,
+      "example": true,
+      "images": [
+        "assets/uploads/furniture-33e33095-835b-4259-b6c2-ec05f46fcf53.jpg",
+        "assets/uploads/furniture-c9460032-1353-4ed2-ac2f-14a8c146eec1.jpg"
+      ]
     }
   ],
   "_publication": {
-    "version": 7,
-    "updatedAt": "2026-10-08T07:31:53.289Z"
+    "version": 8,
+    "updatedAt": "2026-10-08T07:39:51.728Z"
   }
 }
