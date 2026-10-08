@@ -1,8 +1,10 @@
 'use strict';
 const $ = (q, root = document) => root.querySelector(q);
 const cfg = window.STORE_CONFIG;
-const apiRoot = cfg.apiUrl;
-let catalog, original, mode = null, token = '', catalogSha = '', category = '全部';
+const manager = new window.GitHubFurnitureStore(cfg);
+const previews = new Map(), imageRequests = new Map();
+const keyStorage = 'laoxie-owner-key:' + cfg.owner + '/' + cfg.repo;
+let catalog, original, mode = null, category = '全部';
 let editId = null, photos = [], busy = false, processing = false, toastTimer;
 // Catalog values are plain JSON; this also works on older phone browsers.
 const clone = v => JSON.parse(JSON.stringify(v));
@@ -11,12 +13,23 @@ const newProductId = () => 'furniture-' + (typeof crypto.randomUUID === 'functio
 const text = (tag, value, className) => { const n = document.createElement(tag); n.textContent = value; if (className) n.className = className; return n; };
 function imageSource(value) {
   if (typeof value !== 'string') return '';
-  if (/^assets\/[\w/.-]+$/.test(value)) return value;
-  try { const url = new URL(value); if (mode === 'live' && url.origin === apiRoot && /^\/images\/[a-f0-9-]{36}\.jpg$/.test(url.pathname)) return value; } catch {}
+  if (/^assets\/(?:[\w-]+\/)*[\w-]+\.(jpg|jpeg|png|webp)$/.test(value)) return mode === 'live' && previews.has(value) ? previews.get(value) : value;
   if (mode === 'demo' && /^data:image\/(jpeg|png|webp);base64,/.test(value)) return value;
   return '';
 }
-function imageNode(value, alt, className) { const img = document.createElement('img'); img.src = imageSource(value); img.alt = alt; if (className) img.className = className; img.loading = 'lazy'; return img; }
+function setImage(img, value) {
+  img.onerror = async () => {
+    img.onerror = null;
+    if (mode !== 'live' || !imageSource(value).startsWith('assets/')) return;
+    try {
+      if (!imageRequests.has(value)) imageRequests.set(value, manager.image(value));
+      const preview = await imageRequests.get(value);
+      if (mode === 'live' && img.getAttribute('src') === value) { previews.set(value, preview); img.src = preview; }
+    } catch { imageRequests.delete(value); }
+  };
+  img.src = imageSource(value);
+}
+function imageNode(value, alt, className) { const img = document.createElement('img'); setImage(img, value); img.alt = alt; if (className) img.className = className; img.loading = 'lazy'; return img; }
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 4500); }
 function show(id) { $(id).showModal(); }
 function dimensions(p) { return `长 ${p.length} × 宽 ${p.width} × 高 ${p.height} cm`; }
@@ -50,33 +63,14 @@ function render() {
 }
 function openDetail(p) {
   $('#detail-name').textContent = p.name; $('#detail-category').textContent = `${p.category} / 家具详情`; $('#detail-material').textContent = `材质：${p.material}`;
-  $('#detail-description').textContent = p.description; $('#detail-image').src = imageSource(p.images[0]); $('#detail-image').alt = p.name;
+  $('#detail-description').textContent = p.description; setImage($('#detail-image'), p.images[0]); $('#detail-image').alt = p.name;
   $('#detail-dimensions').replaceChildren();
   for (const [label, value] of [['长',p.length],['宽',p.width],['高',p.height]]) { const d = text('div',''); d.append(text('strong', value), text('span', `${label} / 厘米`)); $('#detail-dimensions').append(d); }
   $('#detail-thumbs').replaceChildren();
-  p.images.forEach((url, index) => { const b = text('button', '', index === 0 ? 'active' : ''); b.setAttribute('aria-label', `查看第 ${index + 1} 张图片`); b.append(imageNode(url,p.name)); b.onclick = () => { $('#detail-image').src = imageSource(url); for (const t of $('#detail-thumbs').children) t.classList.remove('active'); b.classList.add('active'); }; $('#detail-thumbs').append(b); });
+  p.images.forEach((url, index) => { const b = text('button', '', index === 0 ? 'active' : ''); b.setAttribute('aria-label', `查看第 ${index + 1} 张图片`); b.append(imageNode(url,p.name)); b.onclick = () => { setImage($('#detail-image'), url); for (const t of $('#detail-thumbs').children) t.classList.remove('active'); b.classList.add('active'); }; $('#detail-thumbs').append(b); });
   $('#detail-example').textContent = p.example ? '效果预览：图片、材质和尺寸为示例，以门店实物为准。' : '尺寸为人工测量，实际尺寸请以门店实物为准。';
   contact($('#detail-contact')); show('#detail');
 }
-async function request(path, options = {}) {
-  const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers };
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), 25000) : null;
-  let r;
-  try { r = await fetch(`${apiRoot}${path}`, {...options, headers, cache:'no-store', ...(controller ? {signal:controller.signal} : {})}); }
-  catch { throw new Error('无法连接家具管理服务。这是连接失败提示，请检查网络后重试。持续失败请联系网站维护，当前填写内容会保留。'); }
-  finally { if (timer !== null) clearTimeout(timer); }
-  if (!r.ok) {
-    const error = await r.json().catch(() => ({}));
-    if (error.error) throw new Error(error.error);
-    if (r.status === 401) throw new Error('登录已失效，请重新输入老板密码。');
-    if (r.status === 403) throw new Error('家具管理服务暂时无法访问，请用手机自带浏览器打开店铺网址后重试。');
-    if (r.status === 409 || r.status === 422) throw new Error('其他设备可能刚修改了信息。请复制当前填写内容，刷新网页后重新编辑，避免覆盖他人的修改。');
-    throw new Error(`连接失败（${r.status}），请检查网络后重试。`);
-  }
-  return r.json();
-}
-async function loadLive() { const data = await request('/api/admin/catalog'); if (!Array.isArray(data.catalog?.products) || !data.catalog.store) throw new Error('家具数据格式异常，请联系网站维护人员。'); catalogSha = data.version; return data.catalog; }
 async function refreshPublic(force = false) {
   if (mode || publicLoading || (!force && Date.now() - lastPublicFetch < 15000)) return;
   publicLoading = true; lastPublicFetch = Date.now(); $('#refresh-catalog').disabled = true;
@@ -88,7 +82,7 @@ async function refreshPublic(force = false) {
     if (!response.ok) throw new Error();
     const latest = await response.json();
     const version = latest._publication?.version ?? 0;
-    if (!latest.store || !Array.isArray(latest.products) || !Number.isInteger(version) || latest.products.some(p => !p.visible || !Array.isArray(p.images) || p.images.some(url => !/^assets\/[\w/-]+\.(jpg|jpeg|png|webp)$/.test(url)))) throw new Error('网站资料格式异常，请联系网站维护。');
+    if (!latest.store || !Array.isArray(latest.products) || !Number.isSafeInteger(version) || latest.products.some(p => typeof p.visible !== 'boolean' || !Array.isArray(p.images) || p.images.some(url => !/^assets\/(?:[\w-]+\/)*[\w-]+\.(jpg|jpeg|png|webp)$/.test(url)))) throw new Error('网站资料格式异常，请联系网站维护。');
     if (version >= publicVersion) {
       const changed = version !== publicVersion; publicVersion = version;
       original = clone(latest);
@@ -106,7 +100,7 @@ async function refreshPublic(force = false) {
   finally { if (timer !== null) clearTimeout(timer); publicLoading = false; $('#refresh-catalog').disabled = false; }
 }
 function openAdmin() {
-  $('#admin-mode').textContent = mode === 'demo' ? '体验模式 · 仅当前浏览器' : '正式管理 · 保存后等待网站发布';
+  $('#admin-mode').textContent = mode === 'demo' ? '体验模式 · 仅当前浏览器' : 'GitHub 管理 · matchForever';
   $('#admin-status').textContent = mode === 'demo' ? '这是体验模式。修改只在当前浏览器可见，退出后恢复正式店铺。' : '保存后自动发布，通常需要几分钟。这里显示保存后的资料，顾客页面在发布完成后更新。';
   renderAdmin(); show('#admin');
 }
@@ -129,12 +123,10 @@ function setBusy(value) {
 }
 async function openDB() { return new Promise((resolve,reject)=>{ const r=indexedDB.open('laoxie-demo-v1',1); r.onupgradeneeded=()=>r.result.createObjectStore('drafts'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(new Error('浏览器无法保存体验数据。请使用普通浏览模式。')); }); }
 async function demoData(action, value) { const db=await openDB(); return new Promise((resolve,reject)=>{ const tx=db.transaction('drafts',action==='read'?'readonly':'readwrite'); const r=action==='read'?tx.objectStore('drafts').get('catalog'):tx.objectStore('drafts').put(value,'catalog'); tx.oncomplete=()=>{db.close();resolve(r.result);}; tx.onerror=()=>{db.close();reject(new Error('浏览器存储空间不足，请减少照片后重试。'));}; }); }
-async function persist(next) {
+async function persist(next, uploads = []) {
   if (mode === 'demo') await demoData('write', next);
   else if (mode === 'live') {
-    const result = await request('/api/admin/catalog', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:catalogSha,catalog:next})});
-    catalogSha = result.version;
-    next = result.catalog;
+    next = await manager.save(next, uploads);
   } else throw new Error('请先登录管理。');
   catalog = next;
 }
@@ -169,23 +161,29 @@ $('#product-form').onsubmit=async event=>{
   setBusy(true);
   try{
     for(const photo of photos){
-      if(mode==='live'&&photo.pending){const bytes=Uint8Array.from(atob(photo.url.split(',')[1]),c=>c.charCodeAt(0));const uploaded=await request('/api/admin/photos',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:bytes});photo.url=uploaded.url;photo.pending=false;}
-      p.images.push(photo.url);
+      if(mode==='live'&&photo.pending) photo.path ||= 'assets/uploads/' + newProductId() + '.jpg';
+      p.images.push(mode==='live'&&photo.pending ? photo.path : photo.url);
     }
     const next=clone(catalog);const index=next.products.findIndex(i=>i.id===p.id);if(index<0)next.products.push(p);else next.products[index]=p;
-    await persist(next); category = '全部'; render();renderAdmin();$('#editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'保存成功，通常几分钟后发布到店铺。');
+    const uploads = mode==='live' ? photos.filter(photo=>photo.pending).map(photo=>({path:photo.path,dataURL:photo.url,blobSha:photo.blobSha})) : [];
+    try { await persist(next, uploads); } finally { for (const upload of uploads) { const photo=photos.find(p=>p.path===upload.path); if(photo)photo.blobSha=upload.blobSha; } }
+    if(mode==='live')for(const photo of photos){if(photo.pending){previews.set(photo.path,photo.url);photo.url=photo.path;photo.pending=false;}}
+    category = '全部'; render();renderAdmin();$('#editor').close();toast(mode==='demo'?'已保存体验内容，仅当前浏览器可见。':'已保存到 GitHub，正在发布，通常几分钟后顾客可见。');
   }catch(e){$('#editor-error').textContent=e.message;}finally{setBusy(false);}
 };
-$('#owner-entry').onclick=()=>{if(mode)openAdmin();else show('#login');};
+function forgetKey(){try{localStorage.removeItem(keyStorage);}catch{}}
+$('#owner-entry').onclick=()=>{if(mode)openAdmin();else{try{const key=localStorage.getItem(keyStorage);if(key&&key.startsWith('github_pat_')){$('#token').value=key;$('#remember-key').checked=true;}}catch{}show('#login');}};
 $('#login-form').onsubmit=async event=>{
-  event.preventDefault(); const submit=$('button',event.target);submit.disabled=true;submit.textContent='正在登录…';$('#login-error').textContent='';token='';
+  event.preventDefault(); const submit=$('button',event.target);submit.disabled=true;submit.textContent='正在登录…';$('#login-error').textContent='';
   try{
-    const auth=await request('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#token').value.trim()})});token=auth.token;
-    const data=await loadLive();mode='live';catalog=data;$('#token').value='';$('#login').close();render();openAdmin();
-  }catch(e){token='';$('#login-error').textContent=e.message || '登录失败，请检查网络。';}finally{submit.disabled=false;submit.textContent='登录家具管理';}
+    const key=$('#token').value.trim();if($('#remember-key').checked&&!key.startsWith('github_pat_'))throw new Error('记住本机只支持下方首次设置生成的细粒度钥匙，请取消勾选或换用该钥匙。');
+    const data=await manager.login(key);mode='live';catalog=data;previews.clear();imageRequests.clear();
+    if($('#remember-key').checked){try{localStorage.setItem(keyStorage,key);}catch{toast('已登录，但浏览器未允许记住钥匙。');}}else forgetKey();
+    $('#token').value='';$('#login').close();render();openAdmin();
+  }catch(e){manager.logout();if(e.status===401)forgetKey();$('#login-error').textContent=e.message || '登录失败，请检查网络。';}finally{submit.disabled=false;submit.textContent='登录家具管理';}
 };
-$('#demo-login').onclick=async()=>{try{catalog=await demoData('read') || clone(original);mode='demo';token='';$('#token').value='';$('#login').close();render();openAdmin();}catch(e){$('#login-error').textContent=e.message;}};
-function logout(){if(busy)return;mode=null;token='';catalog=original?clone(original):null;$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(catalog)render();else $('#grid').replaceChildren(text('p','家具正在加载…','empty'));toast('已退出管理。保存的修改将在发布完成后显示。');refreshPublic(true);}
+$('#demo-login').onclick=async()=>{try{catalog=await demoData('read') || clone(original);mode='demo';manager.logout();$('#token').value='';$('#login').close();render();openAdmin();}catch(e){$('#login-error').textContent=e.message;}};
+function logout(){if(busy)return;const wasLive=mode==='live';mode=null;manager.logout();previews.clear();imageRequests.clear();if(wasLive)forgetKey();$('#remember-key').checked=false;catalog=original?clone(original):null;$('#token').value='';document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(catalog)render();else $('#grid').replaceChildren(text('p','家具正在加载…','empty'));toast('已退出管理。保存的修改将在发布完成后显示。');refreshPublic(true);}
 $('#logout').onclick=logout;$('#preview-banner').onclick=logout;
 $('#add-product').onclick=()=>openEditor();
 $('#store-edit').onclick=()=>{const f=$('#store-form');for(const key of ['intro','phone','address','hours'])f.elements.namedItem(key).value=catalog.store[key]||'';$('#store-error').textContent='';show('#store-editor');};
