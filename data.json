@@ -1,0 +1,8 @@
+{
+  "store": {"name":"老谢红木家具城","intro":"一桌一椅，安放生活。欢迎来老谢红木家具城，慢慢看，细细选，找到适合自己家的家具。","phone":"","address":"","hours":"","hero":"assets/hero.jpg"},
+  "products": [
+    {"id":"sofa-01","name":"雅韵 · 中式沙发组合","category":"沙发","material":"红木（示例，具体木种待确认）","length":218,"width":82,"height":102,"description":"沉稳木色搭配素色软垫，线条简洁，适合中式与新中式客厅。尺寸为三人位示例尺寸，整套组合配置可到店了解。","images":["assets/hero.jpg"],"featured":true,"visible":true,"example":true},
+    {"id":"dining-01","name":"和悦 · 六人餐桌","category":"餐桌","material":"红木（示例，具体木种待确认）","length":160,"width":90,"height":76,"description":"方正桌面，留出舒适的围坐空间。温润木纹与简洁椅背相映，适合一家人围坐用餐。尺寸为餐桌示例尺寸。","images":["assets/dining.jpg"],"featured":true,"visible":true,"example":true},
+    {"id":"cabinet-01","name":"清雅 · 双门收纳柜","category":"柜架","material":"红木（示例，具体木种待确认）","length":110,"width":48,"height":180,"description":"双门收纳，造型端正。可放置在客厅、书房或餐厅，收好日常物件，也为家中添一份中式韵味。内部格局以实物为准。","images":["assets/cabinet.jpg"],"featured":false,"visible":true,"example":true}
+  ]
+}
