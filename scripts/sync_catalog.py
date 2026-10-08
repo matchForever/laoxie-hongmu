@@ -110,9 +110,17 @@ def sync(root, opener=None):
             stage.replace(target)
             downloaded += 1
     previous_public = {k: previous.get(k) for k in ('store', 'products')}
-    changed = previous_public != public or previous.get('_publication', {}).get('version') != payload['version'] or downloaded > 0
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        last_checked = datetime.datetime.fromisoformat(previous['_publication']['updatedAt'])
+        refresh_due = now - last_checked >= datetime.timedelta(days=20)
+    except (KeyError, ValueError, TypeError):
+        refresh_due = True
+    # Record a periodic verified snapshot even when the shop is quiet. This also
+    # keeps repository activity current so GitHub's idle scheduler stays enabled.
+    changed = previous_public != public or previous.get('_publication', {}).get('version') != payload['version'] or downloaded > 0 or refresh_due
     if changed:
-        public['_publication'] = {'version': payload['version'], 'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
+        public['_publication'] = {'version': payload['version'], 'updatedAt': now.isoformat(timespec='seconds')}
         temporary_data = data_path.with_suffix('.json.tmp')
         temporary_data.write_text(json.dumps(public, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         temporary_data.replace(data_path)
