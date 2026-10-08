@@ -64,7 +64,7 @@ async function request(path, options = {}) {
   const timer = controller ? setTimeout(() => controller.abort(), 25000) : null;
   let r;
   try { r = await fetch(`${apiRoot}${path}`, {...options, headers, cache:'no-store', ...(controller ? {signal:controller.signal} : {})}); }
-  catch { throw new Error('无法连接家具管理服务。请检查网络，或用手机自带浏览器打开店铺网址后重试。当前填写内容会保留。'); }
+  catch { throw new Error('无法连接家具管理服务。这是连接失败提示，请检查网络后重试。持续失败请联系网站维护，当前填写内容会保留。'); }
   finally { if (timer !== null) clearTimeout(timer); }
   if (!r.ok) {
     const error = await r.json().catch(() => ({}));
@@ -89,7 +89,15 @@ async function refreshPublic(force = false) {
       catalog = latest.catalog; original = clone(catalog); if (changed) render();
       $('#load-status').textContent = '已更新为店铺最新家具';
     }
-  } catch (e) { if (!mode) $('#load-status').textContent = '最新家具加载失败，当前内容可能未更新。请点击“更新家具”重试。'; }
+  } catch (e) {
+    if (!mode) {
+      // The initial sample file is only a clearly labelled fallback.
+      if (publicVersion < 0) {
+        render();
+        $('#load-status').textContent = '无法连接店铺后台，当前仅展示初始示例，新增家具尚未加载。请检查网络，或用手机浏览器打开后点击“更新家具”。';
+      } else $('#load-status').textContent = '最新家具加载失败，当前保留上次加载的内容。请点击“更新家具”重试。';
+    }
+  }
   finally { publicLoading = false; $('#refresh-catalog').disabled = false; }
 }
 function openAdmin() {
@@ -187,4 +195,20 @@ window.addEventListener('online', () => refreshPublic(true));
 window.addEventListener('focus', () => refreshPublic());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPublic(); });
 setInterval(() => { if (!document.hidden) refreshPublic(); }, 60000);
-fetch(`data.json?t=${Date.now()}`,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(data=>{catalog=data;original=clone(data);render();refreshPublic(true);}).catch(()=>{$('#grid').replaceChildren(text('p','家具加载失败，请检查网络并刷新页面。','empty'));$('#owner-entry').disabled=true;});
+async function initialiseCatalog() {
+  try {
+    const response = await fetch(`data.json?t=${Date.now()}`, {cache:'no-store'});
+    if (!response.ok) throw new Error();
+    catalog = await response.json(); original = clone(catalog);
+    $('#store-intro').textContent = catalog.store.intro; contact($('#store-contact'));
+    // Do not paint three seed cards before the complete live catalog arrives.
+    $('#grid').replaceChildren(text('p','正在加载店内家具，请稍候…','empty'));
+    $('#example-note').hidden = true;
+    await refreshPublic(true);
+  } catch {
+    $('#grid').replaceChildren(text('p','家具加载失败，请检查网络并刷新页面。','empty'));
+    $('#load-status').textContent = '网页资料加载失败，请刷新后重试。';
+    $('#owner-entry').disabled = true;
+  }
+}
+initialiseCatalog();
