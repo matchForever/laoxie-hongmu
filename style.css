@@ -16,3 +16,5 @@ fieldset legend{font-size:17px}.admin-row .text-button{border:1px solid #cfc2af;
 .catalog-sync{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 24px}.catalog-sync .hint{margin:0;font-size:16px}.catalog-sync button{flex-shrink:0;font-size:17px;padding:8px 18px;min-height:48px}.card-photo{height:0;padding-top:75%;aspect-ratio:auto}.card-photo img{position:absolute;inset:0}.login-dialog summary{cursor:pointer;min-height:44px;display:flex;align-items:center}@media(max-width:600px){.catalog-sync{align-items:flex-start}.catalog-sync .hint{font-size:15px}.catalog-sync button{padding:8px 13px}}
 
 .login-note{padding:12px 14px;margin:16px 0;background:#f1e8db;border-left:3px solid var(--red);font-size:16px}.key-setup{margin:18px 0;border-top:1px solid var(--line);padding-top:10px}.key-setup ol{padding-left:23px;font-size:16px;line-height:1.9}.key-setup li{margin-bottom:10px}.key-setup strong{overflow-wrap:anywhere}.login-dialog form>.hint{margin:0 0 15px}
+
+.login-dialog summary{font-size:17px;font-weight:600;line-height:1.6}
