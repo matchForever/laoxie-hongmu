@@ -82,7 +82,7 @@
       "length": 1,
       "width": 2,
       "height": 3,
-      "visible": true,
+      "visible": false,
       "featured": true,
       "example": true,
       "images": [
@@ -92,7 +92,7 @@
     }
   ],
   "_publication": {
-    "version": 12,
-    "updatedAt": "2026-10-09T03:01:42.053Z"
+    "version": 13,
+    "updatedAt": "2026-10-09T03:01:51.688Z"
   }
 }
